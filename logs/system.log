@@ -1,0 +1,19 @@
+2026-05-15 12:34:45  INFO  main       No saved state — starting fresh
+2026-05-15 12:34:45  INFO  main       === BTC ORB Bot starting ===
+2026-05-15 12:34:45  INFO  data_feed  Feed starting: https://fawss.cryptxindia.com  symbol=BTCUSDT
+2026-05-15 12:34:45  INFO  main       Waiting for ticks from https://fawss.cryptxindia.com ...
+2026-05-15 12:34:46  WARN  data_feed  Socket.IO connect error: Connection error
+2026-05-15 12:34:46  WARN  data_feed  Feed error: Connection error — retry in 5s
+2026-05-15 12:34:51  WARN  data_feed  Socket.IO connect error: Connection error
+2026-05-15 12:34:51  WARN  data_feed  Feed error: Connection error — retry in 5s
+2026-05-15 12:34:56  WARN  data_feed  Socket.IO connect error: Connection error
+2026-05-15 12:34:56  WARN  data_feed  Feed error: Connection error — retry in 5s
+2026-05-15 12:35:01  WARN  data_feed  Socket.IO connect error: Connection error
+2026-05-15 12:35:01  WARN  data_feed  Feed error: Connection error — retry in 5s
+2026-05-15 12:35:06  WARN  data_feed  Socket.IO connect error: Connection error
+2026-05-15 12:35:06  WARN  data_feed  Feed error: Connection error — retry in 5s
+2026-05-15 12:35:11  WARN  data_feed  Socket.IO connect error: Connection error
+2026-05-15 12:35:11  WARN  data_feed  Feed error: Connection error — retry in 5s
+2026-05-15 12:35:13  INFO  main       Shutdown signal received
+2026-05-15 12:35:13  INFO  data_feed  Feed stopped
+2026-05-15 12:35:14  INFO  main       === Bot stopped ===
