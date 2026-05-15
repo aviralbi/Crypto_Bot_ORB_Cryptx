@@ -1,5 +1,5 @@
 """
-AI Vision Filter — Supports Gemini + OpenRouter
+AI Vision Filter — Supports Gemini + OpenRouter (Robust Version)
 """
 
 import base64
@@ -79,14 +79,25 @@ def generate_chart(
 
 
 # ---------------------------------------------------------------------------
-# Original Gemini Call (Unchanged)
+# Prompt Template (Keep your original full prompt here)
 # ---------------------------------------------------------------------------
 
 _PROMPT_TEMPLATE = """\
 You are a trading filter for a BTC ORB (Opening Range Breakout) strategy.
-... [YOUR ORIGINAL PROMPT — KEEP IT EXACTLY THE SAME] ...
-Respond ONLY in this exact JSON format...
+Analyze the provided candlestick chart carefully.
+
+Respond ONLY in this exact JSON format, no extra text:
+
+{
+  "decision": "APPROVE" or "REJECT",
+  "confidence": integer between 1 and 10,
+  "reason": "short clear reason"
+}
 """
+
+# ---------------------------------------------------------------------------
+# Original Gemini Call (Unchanged)
+# ---------------------------------------------------------------------------
 
 def _call_gemini_vision(api_key: str, image_b64: str, trigger: TriggerSetup, orb: OpeningRange, model: str) -> dict:
     client = genai.Client(api_key=api_key)
@@ -113,11 +124,11 @@ def _call_gemini_vision(api_key: str, image_b64: str, trigger: TriggerSetup, orb
 
 
 # ---------------------------------------------------------------------------
-# New: OpenRouter Vision Call
+# Robust OpenRouter Vision Call (Fixed)
 # ---------------------------------------------------------------------------
 
 def _call_openrouter_vision(cfg, image_b64: str, trigger: TriggerSetup, orb: OpeningRange) -> dict:
-    """OpenAI-compatible call to OpenRouter."""
+    """Robust OpenAI-compatible call to OpenRouter."""
     tc = trigger.trigger_candle
     r_size = abs(trigger.reference_level - trigger.sl_price)
 
@@ -148,30 +159,45 @@ def _call_openrouter_vision(cfg, image_b64: str, trigger: TriggerSetup, orb: Ope
             ]
         }],
         "temperature": 0.1,
-        "max_tokens": 300,
+        "max_tokens": 400,
     }
 
     response = requests.post(
         f"{cfg.openrouter_base_url}/chat/completions",
         headers=headers,
         json=payload,
-        timeout=30
+        timeout=35
     )
 
     if response.status_code != 200:
-        logger.warning("OpenRouter error %d: %s", response.status_code, response.text[:300])
+        logger.warning("OpenRouter HTTP %d: %s", response.status_code, response.text[:300])
         raise Exception(f"HTTP {response.status_code}")
 
     data = response.json()
-    content = data["choices"][0]["message"]["content"].strip()
-    
-    # Extract JSON
-    start, end = content.find("{"), content.rfind("}") + 1
-    return json.loads(content[start:end])
+
+    # Robust content extraction
+    try:
+        content = data["choices"][0]["message"]["content"]
+        if not content or not isinstance(content, str):
+            raise Exception("Empty or invalid content from OpenRouter")
+    except (KeyError, TypeError, IndexError) as e:
+        logger.warning("OpenRouter: Unexpected response structure - %s", e)
+        raise Exception("Invalid response structure from OpenRouter")
+
+    content = content.strip()
+
+    # Extract JSON from response
+    start = content.find("{")
+    end = content.rfind("}") + 1
+    if start == -1 or end <= start:
+        raise Exception("No valid JSON found in OpenRouter response")
+
+    json_str = content[start:end]
+    return json.loads(json_str)
 
 
 # ---------------------------------------------------------------------------
-# Main AI Filter (Now Supports Both Providers)
+# Main AI Filter (Supports Both Providers)
 # ---------------------------------------------------------------------------
 
 def run_ai_filter(
@@ -195,6 +221,7 @@ def run_ai_filter(
     }
 
     try:
+        # Generate chart
         lookback = candles[-cfg.chart_lookback_candles:] if len(candles) > cfg.chart_lookback_candles else candles
         generate_chart(lookback, orb, trigger, chart_path)
 
@@ -202,7 +229,7 @@ def run_ai_filter(
 
         ai_resp = None
 
-        # Primary provider logic
+        # === Primary Provider ===
         if cfg.ai_provider == "openrouter" and getattr(cfg, "use_openrouter", False) and cfg.openrouter_api_key:
             logger.info("Using OpenRouter as primary provider")
             ai_resp = _call_openrouter_vision(cfg, image_b64, trigger, orb)
@@ -215,7 +242,7 @@ def run_ai_filter(
             )
             result["provider"] = "gemini"
 
-        # Fallback logic (if primary fails or not configured)
+        # === Fallback Logic ===
         if not ai_resp:
             if getattr(cfg, "use_openrouter", False) and cfg.openrouter_api_key and cfg.ai_provider != "openrouter":
                 logger.info("Falling back to OpenRouter")
@@ -228,13 +255,14 @@ def run_ai_filter(
                 )
                 result["provider"] = "gemini"
 
+        # Process AI Response
         if ai_resp:
             decision = ai_resp.get("decision", "APPROVE").upper()
             confidence = int(ai_resp.get("confidence", 0))
             result.update({
                 "decision": decision,
                 "confidence": confidence,
-                "reason": ai_resp.get("reason", ""),
+                "reason": ai_resp.get("reason", "No reason provided"),
             })
 
             if cfg.ai_filter_mode == "active":
@@ -246,7 +274,7 @@ def run_ai_filter(
         logger.warning("AI filter error: %s — fallback=%s", exc, cfg.ai_fallback_action)
         result["reason"] = f"error: {exc}"
 
-    # Log decision
+    # Log AI decision
     try:
         Path(ai_log_path).parent.mkdir(parents=True, exist_ok=True)
         with open(ai_log_path, "w") as f:

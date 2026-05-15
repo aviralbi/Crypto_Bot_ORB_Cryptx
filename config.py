@@ -62,17 +62,17 @@ CONFIG = {
     "quantity_decimals": 3,      # decimal precision for qty — options: 2 | 3 | 4
 
     # ── Paper Trading ────────────────────────────────────────────────────────
-    "paper_trading": False,  # True  = full simulation, zero real orders sent to exchange
+    "paper_trading": True,  # True  = full simulation, zero real orders sent to exchange
                              # False = live trading, real orders placed
-    # ── AI Provider Selection ───────────────────────────────────────────────
-    "ai_provider": "openrouter",           # "gemini" or "openrouter" (primary provider)
-    "use_gemini": False,                # Set False to completely disable Gemini
-    "use_openrouter": True,            # Set True to enable OpenRouter fallback/primary
+        # ── AI Provider Selection ───────────────────────────────────────────────
+    "ai_provider": "openrouter",
+    "use_gemini": True,
+    "use_openrouter": True,
 
     # OpenRouter Settings
     "openrouter_api_key": os.getenv("OPENROUTER_API_KEY", ""),
     "openrouter_base_url": "https://openrouter.ai/api/v1",
-    "openrouter_model": "openrouter/free",          # Best free router
+    "openrouter_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",   # ← WORKING MODEL
     # Alternative strong free vision models:
     # "google/gemma-4-26b-a4b-it:free"
     # "nvidia/nemotron-nano-2-vl:free"
