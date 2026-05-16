@@ -1,12 +1,10 @@
 """
-AI Vision Filter — Supports Gemini + OpenRouter (Robust Version)
+AI Vision Filter — Gemini + OpenRouter (Production Ready)
 """
 
 import base64
 import json
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -14,22 +12,15 @@ from google import genai
 from google.genai import types
 
 from models import Candle, TriggerSetup, OpeningRange, Direction
-from utils import get_logger, IST, now_ist
+from utils import get_logger, now_ist
 
 logger = get_logger("ai_filter")
 
 
 # ---------------------------------------------------------------------------
-# Chart Generation (Unchanged)
+# Chart Generation
 # ---------------------------------------------------------------------------
-
-def generate_chart(
-    candles: list[Candle],
-    orb: OpeningRange,
-    trigger: TriggerSetup,
-    save_path: str,
-) -> str:
-    """Renders mplfinance chart — unchanged from original."""
+def generate_chart(candles: list[Candle], orb: OpeningRange, trigger: TriggerSetup, save_path: str) -> str:
     import mplfinance as mpf
     import pandas as pd
     import matplotlib
@@ -43,34 +34,25 @@ def generate_chart(
         "Close": [c.close for c in candles],
         "Volume": [c.volume for c in candles],
     }
-    idx = pd.DatetimeIndex([c.timestamp for c in candles])
-    df = pd.DataFrame(data, index=idx)
-
-    or_high_line = [orb.high] * len(candles)
-    or_low_line = [orb.low] * len(candles)
+    df = pd.DataFrame(data, index=pd.DatetimeIndex([c.timestamp for c in candles]))
 
     add_plots = [
-        mpf.make_addplot(or_high_line, color="lime", linestyle="--", width=1.5),
-        mpf.make_addplot(or_low_line, color="tomato", linestyle="--", width=1.5),
+        mpf.make_addplot([orb.high] * len(candles), color="lime", linestyle="--", width=1.5),
+        mpf.make_addplot([orb.low] * len(candles), color="tomato", linestyle="--", width=1.5),
     ]
 
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     style = mpf.make_mpf_style(base_mpf_style="charles", rc={"figure.figsize": (14, 7)})
 
-    fig, axes = mpf.plot(
-        df, type="candle", addplot=add_plots, style=style,
-        title=f"BTC ORB — {trigger.direction.value} Setup | OR H={orb.high:.0f} L={orb.low:.0f}",
-        volume=True, returnfig=True,
-    )
+    fig, axes = mpf.plot(df, type="candle", addplot=add_plots, style=style,
+                         title=f"BTC ORB — {trigger.direction.value} Setup | OR H={orb.high:.0f} L={orb.low:.0f}",
+                         volume=True, returnfig=True)
 
+    # Mark trigger candle
     trigger_idx = next((i for i, c in enumerate(candles) if c.timestamp == trigger.trigger_candle.timestamp), None)
     if trigger_idx is not None:
         ax = axes[0]
         ax.axvline(x=trigger_idx, color="orange", linewidth=2, alpha=0.8)
-        label = "▲ Trigger" if trigger.direction == Direction.LONG else "▼ Trigger"
-        ax.annotate(label, xy=(trigger_idx, trigger.trigger_candle.high),
-                    xytext=(trigger_idx + 0.5, trigger.trigger_candle.high * 1.001),
-                    fontsize=8, color="orange", arrowprops=dict(arrowstyle="->", color="orange"))
 
     fig.savefig(save_path, dpi=100, bbox_inches="tight")
     plt.close(fig)
@@ -79,27 +61,23 @@ def generate_chart(
 
 
 # ---------------------------------------------------------------------------
-# Prompt Template (Keep your original full prompt here)
+# Prompt
 # ---------------------------------------------------------------------------
-
-_PROMPT_TEMPLATE = """\
-You are a trading filter for a BTC ORB (Opening Range Breakout) strategy.
-Analyze the provided candlestick chart carefully.
-
-Respond ONLY in this exact JSON format, no extra text:
+_PROMPT_TEMPLATE = """You are a professional trading filter for BTC ORB strategy.
+Analyze the chart and respond **only** in valid JSON:
 
 {
   "decision": "APPROVE" or "REJECT",
-  "confidence": integer between 1 and 10,
-  "reason": "short clear reason"
-}
-"""
+  "confidence": <1-10>,
+  "reason": "short reason"
+}"""
+
 
 # ---------------------------------------------------------------------------
-# Original Gemini Call (Unchanged)
+# Gemini Call
 # ---------------------------------------------------------------------------
-
 def _call_gemini_vision(api_key: str, image_b64: str, trigger: TriggerSetup, orb: OpeningRange, model: str) -> dict:
+    # ... (keep your existing Gemini function)
     client = genai.Client(api_key=api_key)
     tc = trigger.trigger_candle
     r_size = abs(trigger.reference_level - trigger.sl_price)
@@ -117,18 +95,15 @@ def _call_gemini_vision(api_key: str, image_b64: str, trigger: TriggerSetup, orb
         contents=[types.Part.from_bytes(data=image_bytes, mime_type="image/png"), prompt],
         config=types.GenerateContentConfig(max_output_tokens=300, temperature=0.1),
     )
-
     raw = response.text.strip()
     start, end = raw.find("{"), raw.rfind("}") + 1
     return json.loads(raw[start:end])
 
 
 # ---------------------------------------------------------------------------
-# Robust OpenRouter Vision Call (Fixed)
+# Robust OpenRouter Call
 # ---------------------------------------------------------------------------
-
 def _call_openrouter_vision(cfg, image_b64: str, trigger: TriggerSetup, orb: OpeningRange) -> dict:
-    """Robust OpenAI-compatible call to OpenRouter."""
     tc = trigger.trigger_candle
     r_size = abs(trigger.reference_level - trigger.sl_price)
 
@@ -152,60 +127,46 @@ def _call_openrouter_vision(cfg, image_b64: str, trigger: TriggerSetup, orb: Ope
             "role": "user",
             "content": [
                 {"type": "text", "text": prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{image_b64}"}
-                }
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
             ]
         }],
         "temperature": 0.1,
-        "max_tokens": 400,
+        "max_tokens": 600,
     }
 
     response = requests.post(
         f"{cfg.openrouter_base_url}/chat/completions",
         headers=headers,
         json=payload,
-        timeout=35
+        timeout=45
     )
 
     if response.status_code != 200:
-        logger.warning("OpenRouter HTTP %d: %s", response.status_code, response.text[:300])
         raise Exception(f"HTTP {response.status_code}")
 
     data = response.json()
+    message = data["choices"][0]["message"]
 
-    # Robust content extraction
-    try:
-        content = data["choices"][0]["message"]["content"]
-        if not content or not isinstance(content, str):
-            raise Exception("Empty or invalid content from OpenRouter")
-    except (KeyError, TypeError, IndexError) as e:
-        logger.warning("OpenRouter: Unexpected response structure - %s", e)
-        raise Exception("Invalid response structure from OpenRouter")
+    # Handle both content and reasoning fields
+    final_text = message.get("content") or message.get("reasoning") or ""
+    final_text = str(final_text).strip()
 
-    content = content.strip()
+    if not final_text:
+        raise Exception("Model returned empty response")
 
-    # Extract JSON from response
-    start = content.find("{")
-    end = content.rfind("}") + 1
+    # Extract JSON
+    start = final_text.find("{")
+    end = final_text.rfind("}") + 1
     if start == -1 or end <= start:
-        raise Exception("No valid JSON found in OpenRouter response")
+        raise Exception("No JSON found in response")
 
-    json_str = content[start:end]
-    return json.loads(json_str)
+    return json.loads(final_text[start:end])
 
 
 # ---------------------------------------------------------------------------
-# Main AI Filter (Supports Both Providers)
+# Main Function with Improved Logging
 # ---------------------------------------------------------------------------
-
-def run_ai_filter(
-    candles: list[Candle],
-    trigger: TriggerSetup,
-    orb: OpeningRange,
-    cfg,
-) -> dict:
+def run_ai_filter(candles: list[Candle], trigger: TriggerSetup, orb: OpeningRange, cfg) -> dict:
     ts_str = now_ist().strftime("%Y%m%d_%H%M%S")
     direction = trigger.direction.value.lower()
     chart_path = str(Path(cfg.chart_image_path) / f"{ts_str}_{direction}.png")
@@ -221,48 +182,31 @@ def run_ai_filter(
     }
 
     try:
-        # Generate chart
         lookback = candles[-cfg.chart_lookback_candles:] if len(candles) > cfg.chart_lookback_candles else candles
         generate_chart(lookback, orb, trigger, chart_path)
 
         image_b64 = base64.standard_b64encode(Path(chart_path).read_bytes()).decode()
 
+        logger.info("AI Filter: Sending chart to %s for %s trigger", cfg.ai_provider, direction.upper())
+
         ai_resp = None
 
-        # === Primary Provider ===
         if cfg.ai_provider == "openrouter" and getattr(cfg, "use_openrouter", False) and cfg.openrouter_api_key:
-            logger.info("Using OpenRouter as primary provider")
             ai_resp = _call_openrouter_vision(cfg, image_b64, trigger, orb)
             result["provider"] = "openrouter"
-
         elif cfg.ai_provider == "gemini" and getattr(cfg, "use_gemini", True) and cfg.gemini_api_key:
-            logger.info("Using Gemini as primary provider")
-            ai_resp = _call_gemini_vision(
-                cfg.gemini_api_key, image_b64, trigger, orb, cfg.ai_model
-            )
+            ai_resp = _call_gemini_vision(cfg.gemini_api_key, image_b64, trigger, orb, cfg.ai_model)
             result["provider"] = "gemini"
 
-        # === Fallback Logic ===
-        if not ai_resp:
-            if getattr(cfg, "use_openrouter", False) and cfg.openrouter_api_key and cfg.ai_provider != "openrouter":
-                logger.info("Falling back to OpenRouter")
-                ai_resp = _call_openrouter_vision(cfg, image_b64, trigger, orb)
-                result["provider"] = "openrouter"
-            elif getattr(cfg, "use_gemini", True) and cfg.gemini_api_key and cfg.ai_provider != "gemini":
-                logger.info("Falling back to Gemini")
-                ai_resp = _call_gemini_vision(
-                    cfg.gemini_api_key, image_b64, trigger, orb, cfg.ai_model
-                )
-                result["provider"] = "gemini"
-
-        # Process AI Response
         if ai_resp:
-            decision = ai_resp.get("decision", "APPROVE").upper()
-            confidence = int(ai_resp.get("confidence", 0))
+            decision = str(ai_resp.get("decision", "APPROVE")).upper()
+            confidence = int(ai_resp.get("confidence", 5))
+            reason = ai_resp.get("reason", "")
+
             result.update({
                 "decision": decision,
                 "confidence": confidence,
-                "reason": ai_resp.get("reason", "No reason provided"),
+                "reason": reason,
             })
 
             if cfg.ai_filter_mode == "active":
@@ -270,11 +214,14 @@ def run_ai_filter(
             else:
                 result["approved"] = True
 
+            logger.info("AI %s → %s | Confidence=%d | Reason: %s", 
+                       result["provider"].upper(), decision, confidence, reason[:100])
+
     except Exception as exc:
         logger.warning("AI filter error: %s — fallback=%s", exc, cfg.ai_fallback_action)
         result["reason"] = f"error: {exc}"
 
-    # Log AI decision
+    # Save log
     try:
         Path(ai_log_path).parent.mkdir(parents=True, exist_ok=True)
         with open(ai_log_path, "w") as f:
@@ -285,7 +232,7 @@ def run_ai_filter(
                 "provider": result.get("provider"),
                 **result,
             }, f, indent=2)
-    except Exception as log_exc:
-        logger.warning("AI log write failed: %s", log_exc)
+    except Exception as e:
+        logger.warning("Failed to write AI log: %s", e)
 
     return result
